@@ -1,0 +1,143 @@
+seeds: [13, 42, 123, 777, 2024]
+
+datasets:
+  slurp:
+    type: slurp
+    root: "data/slurp"
+    raw_root: "data/slurp/raw"
+    granularity: "scenario_action"
+    max_audio_seconds: 12
+  slurp_scenario:
+    type: slurp
+    root: "data/slurp_scenario"
+    raw_root: "data/slurp/raw"
+    granularity: "scenario"
+    max_audio_seconds: 12
+  fsc:
+    type: fsc
+    root: "data/fsc"
+    split_mode: "official"
+    max_audio_seconds: 5
+  fsc_unseen:
+    type: fsc
+    root: "data/fsc_unseen"
+    source_root: "data/fsc"
+    split_mode: "unseen_utterance"
+    split_seed: 0
+    max_audio_seconds: 5
+  speechmassive_de:
+    type: speechmassive
+    root: "data/speechmassive_de"
+    locale: "de-DE"
+    language: "de"
+    label_field: "intent_str"
+    hf_repo: "FBK-MT/Speech-MASSIVE"
+    hf_test_repo: "FBK-MT/Speech-MASSIVE-test"
+    train_split: "train"
+    dev_split: "validation"
+    test_split: "test"
+    max_audio_seconds: 12
+  slurp_real_synth:
+    type: slurp
+    root: "data/slurp_real_synth"
+    raw_root: "data/slurp/raw"
+    granularity: "scenario_action"
+    audio_subsets: ["slurp_real", "slurp_synth"]
+    max_audio_seconds: 12
+  # Any extra dataset: prepare data/<name>/{train,dev,test}.jsonl with fields
+  # audio_path, transcript, label, utt_id, group, then add:
+  # my_dataset: {type: jsonl, root: "data/my_dataset", max_audio_seconds: 10}
+
+max_text_len_ceiling: 128
+
+encoder_grid:
+  audio: ["facebook/wav2vec2-base", "facebook/hubert-base-ls960", "microsoft/wavlm-base-plus", "openai/whisper-small"]
+  # optional larger encoders (layer-norm models use the attention-mask path automatically):
+  # audio_large: ["microsoft/wavlm-large", "facebook/wav2vec2-large-960h"]
+  text: ["distilbert-base-uncased", "roberta-base"]
+
+audio_features:
+  frame_layer: 8
+  frame_stride: 2
+  max_frames: 400
+  stats: ["mean", "std"]
+  store_dtype: "float16"
+  batch_size: 32
+  whisper_batch_size: 16
+  fp16_encoder: true
+
+noise:
+  noise_dir: null
+  sample_rate: 16000
+
+conditions:
+  audio: ["clean", "snr20", "snr10", "snr5", "snr0", "rev400", "rev400+snr10"]
+  asr_models: ["whisper-tiny", "whisper-base", "whisper-small", "whisper-medium", "whisper-large-v3", "w2v2ctc-base-960h"]
+  eval_asr_models: ["whisper-tiny", "whisper-small", "whisper-large-v3", "w2v2ctc-base-960h"]
+  synthetic_wer: [0.1, 0.2, 0.3]
+  synthetic_seed: 42
+  synthetic_ops: {sub: 0.6, del: 0.2, ins: 0.2}
+
+reliability:
+  reference_model: "whisper-tiny"
+  fallback_reference_model: "whisper-base"
+
+model:
+  audio_layers: "weighted"
+  audio_stats: ["mean", "std"]
+  text_feature: "cls"
+  audio_mode: "pooled"
+  frame_arch: "attn"
+  frame_dim: 256
+  frame_layers: 1
+  route: "soft"
+  branch_hidden: 0
+  fusion_hidden: 512
+  gate_hidden: 64
+  dropout: 0.1
+  default_fusion: "reliability"
+
+train:
+  stage: "two_stage"
+  loss_mode: "fixed"
+  loss_weights: {text: 0.25, audio: 0.25, fused: 0.5}
+  modality_dropout: 0.15
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  batch_size: 256
+  epochs: 60
+  patience: 8
+  train_pairs:
+    - {audio: "clean", text: "gold"}
+    - {audio: "clean", text: "whisper-small@clean"}
+  select_on:
+    audio: "clean"
+    text: "whisper-small@clean"
+
+finetune:
+  audio_encoder: "microsoft/wavlm-base-plus"
+  text_encoder: "roberta-base"
+  mode: "full"
+  epochs: 5
+  batch_size: 16
+  grad_accum: 2
+  lr_encoder: 2.0e-5
+  lr_head: 1.0e-3
+  warmup_ratio: 0.1
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  train_pairs:
+    - {audio: "clean", text: "whisper-small@clean"}
+
+analysis:
+  bootstrap_samples: 10000
+  wer_buckets: [0.0, 0.0001, 0.1, 0.25, 0.5, 100.0]
+  confidence_quantiles: 4
+
+paths:
+  checkpoints: "checkpoints"
+  results: "results"
+  logs: "logs"
+  features: "features"
+  asr: "asr"
